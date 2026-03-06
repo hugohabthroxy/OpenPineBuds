@@ -239,7 +239,7 @@ void app_cueing_add_cueingps(void) {
                        gapm_profile_task_add_cmd, 0);
 
   req->operation = GAPM_PROFILE_TASK_ADD;
-  req->sec_lvl = PERM(SVC_AUTH, ENABLE);
+  req->sec_lvl = 0;
   req->prf_task_id = TASK_ID_CUEINGPS;
   req->app_task = TASK_APP;
   req->start_hdl = 0;

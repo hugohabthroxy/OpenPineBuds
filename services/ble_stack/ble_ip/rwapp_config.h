@@ -24,7 +24,6 @@
 /* -------------------------   BLE APPLICATION SETTINGS
  * -----------------------------*/
 /******************************************************************************************/
-#define CFG_APP_DATAPATH_SERVER
 #define CFG_APP_CUEING_SERVER
 
 #define FAST_PAIR_REV_1_0 0

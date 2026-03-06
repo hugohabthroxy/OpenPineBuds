@@ -210,7 +210,9 @@ export GFPS_ENABLE ?= 0
 
 export WL_UI ?= 1
 
-BLE ?= 0
+IS_USE_BLE_DUAL_CONNECTION ?= 0
+
+BLE ?= 1
 
 TOTA ?= 0
 
@@ -245,7 +247,7 @@ A2DP_LHDC_LARC ?= 1
 export FLASH_UNIQUE_ID ?= 1
 endif
 
-A2DP_LDAC_ON ?= 1
+A2DP_LDAC_ON ?= 0
 
 export TX_RX_PCM_MASK ?= 0
 
