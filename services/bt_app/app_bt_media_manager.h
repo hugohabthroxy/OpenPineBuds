@@ -129,7 +129,7 @@ void app_rbcodec_toggle_play_stop(void);
 
 void app_stop_a2dp_media_stream(uint8_t devId);
 void app_stop_sco_media_stream(uint8_t devId);
-int app_audio_manager_ctrl_volume(APP_AUDIO_MANAGER_VOLUME_CTRL_T volume_ctrl, uint16_t volume_level);
+int app_audio_manager_ctrl_volume(enum APP_AUDIO_MANAGER_VOLUME_CTRL_T volume_ctrl, uint16_t volume_level);
 int app_audio_manager_tune_samplerate_ratio(enum AUD_STREAM_T stream, float ratio);
 bool bt_media_cur_is_bt_stream_media(void);
 bool bt_media_is_sbc_media_active(void);
