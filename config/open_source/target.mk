@@ -210,7 +210,7 @@ export GFPS_ENABLE ?= 0
 
 export WL_UI ?= 1
 
-BLE ?= 0
+BLE ?= 1
 
 TOTA ?= 0
 
