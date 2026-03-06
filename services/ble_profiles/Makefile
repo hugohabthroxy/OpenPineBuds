@@ -2,6 +2,7 @@
 cur_dir := $(dir $(lastword $(MAKEFILE_LIST)))
 
 obj_c += $(patsubst $(cur_dir)%,%,$(wildcard $(cur_dir)datapath/datapathps/src/*.c))
+obj_c += $(patsubst $(cur_dir)%,%,$(wildcard $(cur_dir)cueing/cueingps/src/*.c))
 obj_c += $(patsubst $(cur_dir)%,%,$(wildcard $(cur_dir)hrp/hrps/src/*.c))
 obj_c += $(patsubst $(cur_dir)%,%,$(wildcard $(cur_dir)hogp/hogpbh/src/*.c))
 obj_c += $(patsubst $(cur_dir)%,%,$(wildcard $(cur_dir)hogp/hogpd/src/*.c))
@@ -77,10 +78,13 @@ subdir-ccflags-y += \
 	-Iservices/ble_stack/profiles/htp/htpt/src/ \
 	-Iservices/ble_stack/profiles/htp/ \
 	-Iservices/ble_profiles/datapath/datapathps/api/ \
+	-Iservices/ble_profiles/cueing/cueingps/api/ \
+	-Iservices/ble_profiles/cueing/cueingps/src/ \
 	-Iservices/ble_app/app_main/ \
 	-Iservices/ble_app/app_voice \
 	-Iservices/ble_app/app_htp/ \
 	-Iservices/ble_app/app_datapath/ \
+	-Iservices/ble_app/app_cueing/ \
 	-Iservices/ble_profiles/hrp/hrps/src/ \
 	-Iservices/ble_profiles/hrp/hrps/api \
 	-Iservices/ble_profiles/hrp/ \

@@ -25,6 +25,7 @@
  * -----------------------------*/
 /******************************************************************************************/
 #define CFG_APP_DATAPATH_SERVER
+#define CFG_APP_CUEING_SERVER
 
 #define FAST_PAIR_REV_1_0 0
 #define FAST_PAIR_REV_2_0 1
@@ -107,6 +108,13 @@
 #else // defined(CFG_APP_DATAPATH_SERVER)
 #define BLE_APP_DATAPATH_SERVER 0
 #endif // defined(CFG_APP_DATAPATH_SERVER)
+
+/// Audio Cueing Server Application
+#if defined(CFG_APP_CUEING_SERVER)
+#define BLE_APP_CUEING_SERVER 1
+#else
+#define BLE_APP_CUEING_SERVER 0
+#endif
 
 /// HID Application
 #if defined(CFG_APP_HID)

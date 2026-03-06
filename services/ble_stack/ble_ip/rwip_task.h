@@ -159,6 +159,7 @@ enum TASK_API_ID
     TASK_ID_TOTA         = 76,   // TOTA Task
 
     TASK_ID_TILE         = 77,   // skull tile task
+    TASK_ID_CUEINGPS     = 78,   // Audio Cueing Server Task
 
     /* 240 -> 241 reserved for Audio Mode 0 */
     TASK_ID_AM0          = 240,  // BLE Audio Mode 0 Task

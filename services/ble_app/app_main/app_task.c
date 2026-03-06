@@ -78,6 +78,11 @@
 #include "datapathps_task.h"
 #endif // (BLE_APP_DATAPATH_SERVER)
 
+#if (BLE_APP_CUEING_SERVER)
+#include "app_cueing_server.h"
+#include "cueingps_task.h"
+#endif // (BLE_APP_CUEING_SERVER)
+
 #if (BLE_APP_AI_VOICE)
 #include "app_ai_ble.h" // ama Voice Module Definition
 #endif                  // (BLE_APP_AI_VOICE)
@@ -442,14 +447,14 @@ static int gapc_get_dev_info_req_ind_handler(
     struct gapc_get_dev_info_cfm *cfm = KE_MSG_ALLOC(
         GAPC_GET_DEV_INFO_CFM, src_id, dest_id, gapc_get_dev_info_cfm);
     cfm->req = param->req;
-    // Slave preferred Connection interval Min
-    cfm->info.slv_params.con_intv_min = 8;
-    // Slave preferred Connection interval Max
-    cfm->info.slv_params.con_intv_max = 10;
-    // Slave preferred Connection latency
+    // Slave preferred Connection interval Min (6 * 1.25ms = 7.5ms)
+    cfm->info.slv_params.con_intv_min = 6;
+    // Slave preferred Connection interval Max (8 * 1.25ms = 10ms)
+    cfm->info.slv_params.con_intv_max = 8;
+    // Slave preferred Connection latency (0 = no skipped events)
     cfm->info.slv_params.slave_latency = 0;
-    // Slave preferred Link supervision timeout
-    cfm->info.slv_params.conn_timeout = 200; // 2s (500*10ms)
+    // Slave preferred Link supervision timeout (200 * 10ms = 2s)
+    cfm->info.slv_params.conn_timeout = 200;
 
     // Send message
     ke_msg_send(cfm);
@@ -724,6 +729,10 @@ static int gapc_disconnect_ind_handler(ke_msg_id_t const msgid,
   app_datapath_server_disconnected_evt_handler(conidx);
 #endif
 
+#if (BLE_APP_CUEING_SERVER)
+  app_cueing_server_disconnected_evt_handler(conidx);
+#endif
+
 #if (BLE_OTA)
   app_ota_disconnected_evt_handler(conidx);
 #endif
@@ -856,6 +865,13 @@ static int appm_msg_handler(ke_msg_id_t const msgid, void *param,
                                src_id);
   } break;
 #endif //(BLE_APP_DATAPATH_SERVER)
+
+#if (BLE_APP_CUEING_SERVER)
+  case (TASK_ID_CUEINGPS): {
+    msg_pol = appm_get_handler(&app_cueing_server_table_handler, msgid, param,
+                               src_id);
+  } break;
+#endif //(BLE_APP_CUEING_SERVER)
 #if (BLE_APP_TILE)
   case (TASK_ID_TILE): {
     // Call the TILE Module
@@ -947,6 +963,10 @@ __STATIC int gattc_mtu_changed_ind_handler(
 
 #if (BLE_APP_DATAPATH_SERVER)
   app_datapath_server_mtu_exchanged_handler(conidx, param->mtu);
+#endif
+
+#if (BLE_APP_CUEING_SERVER)
+  app_cueing_server_mtu_exchanged_handler(conidx, param->mtu);
 #endif
 
 #if (BLE_VOICEPATH)
