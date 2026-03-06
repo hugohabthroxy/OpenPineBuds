@@ -41,6 +41,9 @@ lib-ymn		:= $(lib-y) $(lib-m) $(lib-)
 multi-used-ymn	:= $(sort $(foreach m,$(obj-ymn), $(if $(strip $($(m:.o=-objs)) $($(m:.o=-y))), $(m))))
 multi-objs-ymn	:= $(foreach m, $(multi-used-ymn), $($(m:.o=-objs)) $($(m:.o=-y)))
 
+subdir-ymn	+= $(patsubst %/,%,$(filter %/, $(multi-objs-ymn)))
+multi-objs-ymn	:= $(patsubst %/, %/built-in.o %/built-in.a, $(multi-objs-ymn))
+
 obj-ymn		:= $(patsubst %/, %/built-in.o %/built-in.a, $(obj-y) $(obj-m) $(obj-))
 
 extra-ymn	:= $(extra-y) $(extra-m) $(extra-)
