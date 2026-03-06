@@ -12,9 +12,7 @@
 #ifdef VOICE_DATAPATH
 #define CFG_VOICEPATH
 #else
-#ifdef CFG_APP_DATAPATH_SERVER
 #define CFG_PRF_DATAPATH_SERVER
-#endif
 #endif
 
 #ifdef __AI_VOICE__
