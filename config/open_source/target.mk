@@ -67,11 +67,11 @@ AUDIO_OUTPUT_DIFF ?= 0
 DIGMIC_HIGH_VOLT ?= 0 
 
 #### ANC DEFINE START ######
-export ANC_APP		    ?= 1
+export ANC_APP		    ?= 0
 # Feed Forward  ANC configuration (external mic)
-export ANC_FF_ENABLED	?= 1
+export ANC_FF_ENABLED	?= 0
 # Feed Backward ANC configuration (internal mic)
-export ANC_FB_ENABLED	?= 1
+export ANC_FB_ENABLED	?= 0
 # Wind noise reduction mode
 export ANC_WNR_ENABLED ?= 0
 
@@ -81,9 +81,9 @@ export AUDIO_SECTION_SUPPT ?= 0
 export AUD_SECTION_STRUCT_VERSION ?= 2
 # Music cancel hardware?
 export AUDIO_ANC_FB_MC_HW ?=0
-export APP_ANC_KEY ?= 1
+export APP_ANC_KEY ?= 0
 # Feedback check for feedforward mic. Locked on due to blobs
-export ANC_FB_CHECK ?= 1
+export ANC_FB_CHECK ?= 0
 # Build in ANC testing app (closed source)
 APP_ANC_TEST ?= 0
 export ANC_ASSIST_ENABLED ?= 0
@@ -263,7 +263,7 @@ DAC_CLASSG_ENABLE ?= 1
 
 NO_SLEEP ?= 0
 
-CORE_DUMP ?= 1
+CORE_DUMP ?= 0
 
 CORE_DUMP_TO_FLASH ?= 0
 
@@ -368,7 +368,7 @@ else
 AUDIO_BUFFER_SIZE := 100*1024
 endif
 
-export TRACE_BUF_SIZE := 16*1024
+export TRACE_BUF_SIZE := 4*1024
 export TRACE_BAUD_RATE := 2000000
 
 init-y :=
