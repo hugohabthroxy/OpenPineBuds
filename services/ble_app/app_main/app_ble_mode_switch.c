@@ -933,6 +933,8 @@ void app_ble_start_connect(uint8_t *bdAddrToConnect) {
 }
 
 bool app_ble_is_connection_on(uint8_t index) {
+  if (!bleModeEnv.bleEnv)
+    return false;
   return (BLE_CONNECTED == bleModeEnv.bleEnv->context[index].connectStatus);
 }
 
@@ -948,6 +950,8 @@ bool app_ble_is_any_connection_exist(void) {
 }
 
 void app_ble_start_disconnect(uint8_t conIdx) {
+  if (!bleModeEnv.bleEnv)
+    return;
   if (BLE_CONNECTED == bleModeEnv.bleEnv->context[conIdx].connectStatus) {
     LOG_I("will disconnect connection:%d", conIdx);
     bleModeEnv.bleEnv->context[conIdx].connectStatus = BLE_DISCONNECTING;
