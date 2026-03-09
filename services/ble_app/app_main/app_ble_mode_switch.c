@@ -414,6 +414,9 @@ static void ble_adv_config_param(uint8_t advType, uint16_t advInterval) {
 
 static bool ble_adv_is_allowed(void) {
   bool allowed_adv = true;
+  LOG_I("CUEING_DBG: ble_adv_is_allowed check: stack_ready=%d poweroff=%d advSwitch=0x%x",
+        app_is_stack_ready(), app_is_power_off_in_progress(), bleModeEnv.advSwitch);
+
   if (!app_is_stack_ready()) {
     LOG_I("reason: stack not ready");
     allowed_adv = false;
@@ -424,14 +427,11 @@ static bool ble_adv_is_allowed(void) {
     allowed_adv = false;
   }
 
-  if (bleModeEnv.advSwitch) {
-    LOG_I("adv switch set:0x%x (ignored for cueing)", bleModeEnv.advSwitch);
-  }
-
   if (false == allowed_adv) {
     app_ble_stop_activities();
   }
 
+  LOG_I("CUEING_DBG: ble_adv_is_allowed returning %d", allowed_adv);
   return allowed_adv;
 }
 
@@ -820,6 +820,7 @@ void app_ble_register_data_fill_handle(enum BLE_ADV_USER_E user,
 }
 
 void app_ble_system_ready(void) {
+  LOG_I("CUEING_DBG: app_ble_system_ready called - BLE stack fully initialized");
   uint32_t generatedSeed = hal_sys_timer_get();
 
   for (uint8_t index = 0; index < sizeof(bt_addr); index++) {
@@ -859,21 +860,20 @@ static void ble_adv_refreshing(void *param) {
 
 static bool app_ble_start_adv(uint8_t advType, uint16_t advInterval) {
   uint32_t adv_user_enable = bleModeEnv.adv_user_enable;
-  LOG_I("[ADV]type:%d, interval:%d ca:%p", advType, advInterval,
-        __builtin_return_address(0));
+  LOG_I("CUEING_DBG: app_ble_start_adv type:%d interval:%d state:%d",
+        advType, advInterval, bleModeEnv.state);
 
   if (!ble_adv_is_allowed()) {
-    LOG_I("[ADV] not allowed.");
+    LOG_I("CUEING_DBG: [ADV] not allowed, aborting");
     return false;
   }
 
   ble_adv_config_param(advType, advInterval);
 
-  LOG_I("%s old_user_enable 0x%x new 0x%x", __func__, adv_user_enable,
-        bleModeEnv.adv_user_enable);
+  LOG_I("CUEING_DBG: adv_user_enable old=0x%x new=0x%x adv_user_register=0x%x",
+        adv_user_enable, bleModeEnv.adv_user_enable, bleModeEnv.adv_user_register);
   if (!bleModeEnv.adv_user_enable) {
-    LOG_I("no adv user enable");
-    LOG_I("[ADV] not allowed.");
+    LOG_I("CUEING_DBG: no adv user enable, aborting");
     app_ble_stop_activities();
     return false;
   }

@@ -608,7 +608,7 @@ void gapm_update_ble_adv_data_right_before_started(uint8_t *pAdvData,
 void appm_start_advertising(void *param) {
   BLE_APP_FUNC_ENTER();
 
-  LOG_I("%s state: %d", __func__, ke_state_get(TASK_APP));
+  LOG_I("CUEING_DBG: appm_start_advertising called, TASK_APP state: %d", ke_state_get(TASK_APP));
 
   // Prepare the GAPM_START_ADVERTISE_CMD message
   struct gapm_start_advertise_cmd *cmd = KE_MSG_ALLOC(

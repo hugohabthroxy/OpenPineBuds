@@ -224,10 +224,13 @@ bool app_is_stack_ready(void) {
 }
 
 static void app_stack_ready_cb(void) {
-  TRACE(0, "stack init done");
+  TRACE(0, "stack init done, stack_ready_flag=%d", stack_ready_flag);
 #ifdef BLE_ENABLE
+  TRACE(0, "CUEING_DBG: calling app_ble_stub_user_init");
   app_ble_stub_user_init();
+  TRACE(0, "CUEING_DBG: calling app_ble_start_connectable_adv");
   app_ble_start_connectable_adv(BLE_ADVERTISING_INTERVAL);
+  TRACE(0, "CUEING_DBG: app_ble_start_connectable_adv returned");
 #endif
 }
 
