@@ -197,23 +197,17 @@ void app_ble_core_global_callback_event(ble_callback_evnet_t *event,
 
 static void app_ble_stub_user_data_fill_handler(void *param) {
   LOG_I("%s", __func__);
-  bool adv_enable = false;
+  bool adv_enable = true;
 
 #if defined(IBRT)
   ibrt_ctrl_t *p_ibrt_ctrl = app_tws_ibrt_get_bt_ctrl_ctx();
-
-  if (!p_ibrt_ctrl->init_done) {
-    LOG_I("%s ibrt don't init", __func__);
-  } else if (p_ibrt_ctrl->current_role != IBRT_MASTER) {
-    LOG_I("%s role %d isn't MASTER", __func__, p_ibrt_ctrl->current_role);
-  } else
-#endif
-      if (app_ble_get_user_register() & ~(1 << USER_STUB)) {
-    LOG_I("%s have other user register 0x%x", __func__,
-          app_ble_get_user_register());
+  if (p_ibrt_ctrl->init_done) {
+    LOG_I("%s ibrt role %d, allowing adv", __func__,
+          p_ibrt_ctrl->current_role);
   } else {
-    adv_enable = true;
+    LOG_I("%s ibrt not init yet, allowing adv anyway", __func__);
   }
+#endif
 
   app_ble_data_fill_enable(USER_STUB, adv_enable);
 }

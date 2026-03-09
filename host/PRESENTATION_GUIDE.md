@@ -38,10 +38,21 @@ On the computer side (a laptop running Python), we wrote scripts that use a BLE 
 
 ### How many files were changed?
 
-- **6 new firmware files** (C code for the new service)
-- **9 existing firmware files modified** (registration and glue)
+- **6 new firmware files** (C code for the new BLE cueing service)
+- **13 existing firmware files modified** (registration, glue, memory optimization, boot crash fix, BLE advertising fix)
+- **3 build/system fixes** (scripts/clean.mk, app_ble_rx_handler.h, app_bt_media_manager.h)
 - **9 new Python scripts** (host-side BLE communication and testing)
 - **Total: ~1500 lines of new C code, ~800 lines of Python**
+
+### Current firmware status (for Q&A)
+
+The cueing service and BLE stack are implemented, the code builds, and **BLE is enabled** (`BLE ?= 1`). The firmware boots successfully on both earbuds after memory optimizations (ANC disabled, LDAC disabled, reduced trace buffer, single BLE connection) and two critical fixes:
+
+1. **Boot crash fix** -- The BLE data structure initialization (`app_ble_mode_init()`) was moved earlier in the startup sequence so it runs before the battery/charging check, preventing a crash when the earbud boots inside the charging case.
+
+2. **BLE advertising fix** -- The firmware's IBRT (True Wireless Stereo) layer had two gates that blocked BLE advertising unless the earbuds had completed TWS self-pairing and one had assumed the MASTER role. These gates were bypassed so each earbud can advertise BLE independently.
+
+Both earbuds have been flashed with the custom firmware (left via `bestool`, right via the Pine64 Windows programmer) and boot normally.
 
 ### The big picture in one diagram
 
@@ -332,22 +343,54 @@ Without these changes, the compiler simply doesn't know the new code exists.
 
 ---
 
-### 2.5 What We Did NOT Change
+### 2.5 Build Configuration and Memory Optimizations
+
+The open_source target is configured in `config/open_source/target.mk`. **`BLE ?= 1`** enables the full BLE stack so `services/ble_app/`, `services/ble_profiles/`, and `services/ble_stack/` are compiled in.
+
+The BES2300YP has only 992 KB of SRAM, which is shared between the RTOS, audio codecs, Bluetooth Classic, the BLE host stack, and application code. Enabling BLE required disabling non-essential features to free RAM:
+
+| Optimization | Config Flag | Estimated Savings |
+|---|---|---|
+| Disable ANC (Active Noise Cancellation) | `ANC_APP=0`, `ANC_FF_ENABLED=0`, `ANC_FB_ENABLED=0` | ~30-50 KB |
+| Disable LDAC audio codec | `A2DP_LDAC_ON=0` | ~40 KB |
+| Single BLE connection | `IS_USE_BLE_DUAL_CONNECTION=0` | Per-connection structures |
+| Reduce trace buffer | `TRACE_BUF_SIZE := 4*1024` (from 16 KB) | 12 KB |
+| Disable core dump | `CORE_DUMP=0` | Variable |
+
+These trade-offs are acceptable for our use case: ANC and LDAC are not needed for cueing, and a single BLE connection is sufficient (one laptop connects at a time).
+
+### 2.6 Boot Crash Fix and BLE Advertising Fix
+
+Two critical issues had to be solved beyond memory optimization:
+
+**Boot crash:** When the earbud boots in the charging case, the firmware detects "charging mode" and takes a shutdown path. This path calls `app_deinit()`, which calls `LinkDisconnectDirectly()`, which calls `app_ble_is_any_connection_exist()`. But `app_ble_mode_init()` was called *after* the battery check, so BLE data structures were uninitialized, causing a hard fault. The fix moved `app_ble_mode_init()` earlier in `apps.cpp`.
+
+**BLE advertising:** Even after booting successfully, the earbuds were invisible to BLE scanners. The firmware's IBRT (Interleaved BT Retransmission Technology) layer controls BLE advertising, and two gates blocked it:
+
+1. `app_ble_stub_user_data_fill_handler()` in `app_ble_core.c` only enabled advertising when `current_role == IBRT_MASTER`. After a fresh flash, `nv_role = IBRT_UNKNOW`, so advertising never started. Fix: always enable advertising.
+
+2. The BOX advertising switch (set when the earbud boots in the case) was never cleared because the PLUGOUT event handler returned early when `nv_role == IBRT_UNKNOW`. Fix: removed the early returns so box events propagate regardless of TWS pairing state.
+
+### 2.7 What We Did NOT Change
 
 Important to note: we did **not** modify any of the following:
 - The core BLE stack implementation
 - The audio codec or DSP pipeline
-- The TWS (True Wireless Stereo) pairing logic
-- The ANC (Active Noise Cancellation) code
 - The touch sensor or button handling
 - The power management or charging logic
 - The OTA (Over-The-Air) update mechanism
 
-Our changes are entirely **additive** -- they sit alongside the existing functionality without disturbing it. The earbuds continue to work normally for music and calls; the cueing service is an extra feature accessible only via BLE.
+ANC was disabled via build flags (not code deletion) and can be re-enabled by setting `ANC_APP=1` etc. in target.mk if RAM budget allows. The cueing service is entirely **additive** -- it sits alongside the existing functionality. The earbuds continue to work for music and calls; the cueing service is an extra feature accessible only via BLE.
+
+#### 2.6.1 Build system and compatibility fixes
+
+- **scripts/clean.mk** — Clean failed when composite objects had directory entries (e.g. `rtos/rtx/TARGET_CORTEX_M/`) because `rm -f` cannot remove directories. Fixed by adding those entries to the subdirectory clean list and replacing them with `built-in.o`/`built-in.a` in the file list.
+- **services/ble_app/app_main/app_ble_rx_handler.h** — Added `#include <stdint.h>` so `uint8_t`/`uint16_t` are defined when BLE is enabled.
+- **services/bt_app/app_bt_media_manager.h** — Added `enum` keyword to the volume control function parameter type for C compatibility (`enum APP_AUDIO_MANAGER_VOLUME_CTRL_T`).
 
 ---
 
-### 2.6 The Python Host Side
+### 2.8 The Python Host Side
 
 While not part of the firmware itself, the host-side Python code is essential to the system.
 
@@ -357,7 +400,7 @@ A single-source-of-truth for all UUIDs and command constants. Both the firmware 
 
 #### BLE Scanner (`scan_and_discover.py`)
 
-The first diagnostic tool. It scans the air, connects to the earbuds, and enumerates every GATT service. You use this to verify the cueing service actually shows up after flashing.
+The first diagnostic tool. It scans the air, connects to the earbuds, and enumerates every GATT service. You use this to verify the cueing service actually shows up after flashing. The firmware advertises over BLE under the name **"PineBuds Pro BLE"** (defined in `config/open_source/tgt_hardware.c`); run with `--name "PineBuds Pro BLE"`. The name "PineBuds Pro" is used for classic Bluetooth only.
 
 #### End-to-End Test (`test_cueing.py`)
 
@@ -391,7 +434,7 @@ Designed as a HERMES Pipeline component that sits between the AI detector and th
 
 ---
 
-### 2.7 Summary Table: Every Changed File
+### 2.9 Summary Table: Every Changed File
 
 | # | File | Change Type | What Was Changed |
 |---|------|-------------|-----------------|
@@ -402,20 +445,28 @@ Designed as a HERMES Pipeline component that sits between the AI detector and th
 | 5 | `app_cueing_server.h` | New | Command/status defines, config struct |
 | 6 | `app_cueing_server.c` | New | Command parser, audio control, timers, volume, burst logic |
 | 7 | `rwip_task.h` | Modified | Added TASK_ID_CUEINGPS = 78 |
-| 8 | `rwapp_config.h` | Modified | Added build flags |
-| 9 | `rwprf_config.h` | Modified | Added profile flag |
+| 8 | `rwapp_config.h` | Modified | Added build flags (CFG_APP_CUEING_SERVER) |
+| 9 | `rwprf_config.h` | Modified | Added profile flag (BLE_CUEING_SERVER) |
 | 10 | `rwble_hl_config.h` | Modified | Fixed profile count (CFG_NB_PRF) |
 | 11 | `prf.c` | Modified | Registered profile in switch |
 | 12 | `app.c` | Modified | Added to service list, init, registration |
 | 13 | `app_task.c` | Modified | Message routing, conn params |
 | 14 | `ble_app/Makefile` | Modified | Added source + include paths |
 | 15 | `ble_profiles/Makefile` | Modified | Added source + include paths |
-| 16 | `cueing_uuids.py` | New | UUID definitions |
-| 17 | `scan_and_discover.py` | New | BLE scanner |
-| 18 | `test_cueing.py` | New | End-to-end test |
-| 19 | `latency_benchmark.py` | New | Latency measurement + export |
-| 20 | `cueing_consumer.py` | New | HERMES consumer + auto-reconnect |
-| 21 | `cueing_fsm.py` | New | Cueing control FSM |
-| 22 | `experiment_longevity.py` | New | Multi-hour stability test |
-| 23 | `experiment_compare_strategies.py` | New | Strategy comparison |
-| 24 | `requirements.txt` | New | Python deps |
+| 16 | `target.mk` | Modified | BLE=1, ANC=0, LDAC=0, single BLE conn, reduced trace, no core dump |
+| 17 | `apps.cpp` | Modified | Moved app_ble_mode_init() before battery check (boot crash fix) |
+| 18 | `app_ble_core.c` | Modified | Bypass IBRT_MASTER advertising gate |
+| 19 | `app_ibrt_search_pair_ui.cpp` | Modified | Allow box events when nv_role is UNKNOW (advertising fix) |
+| 20 | `app_ibrt_keyboard.cpp` | Modified | Guard app_anc_key() with #ifdef ANC_APP |
+| 21 | `cueing_uuids.py` | New | UUID definitions |
+| 22 | `scan_and_discover.py` | New | BLE scanner |
+| 23 | `test_cueing.py` | New | End-to-end test |
+| 24 | `latency_benchmark.py` | New | Latency measurement + export |
+| 25 | `cueing_consumer.py` | New | HERMES consumer + auto-reconnect |
+| 26 | `cueing_fsm.py` | New | Cueing control FSM |
+| 27 | `experiment_longevity.py` | New | Multi-hour stability test |
+| 28 | `experiment_compare_strategies.py` | New | Strategy comparison |
+| 29 | `requirements.txt` | New | Python deps |
+| 30 | `scripts/clean.mk` | Modified | Handle directory entries in multi-object deps for clean |
+| 31 | `app_ble_rx_handler.h` | Modified | Add `<stdint.h>` for uint8_t/uint16_t |
+| 32 | `app_bt_media_manager.h` | Modified | Add `enum` keyword for C compatibility |

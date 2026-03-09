@@ -1947,6 +1947,10 @@ int app_init(void) {
   if (nRet) {
     goto exit;
   }
+
+#ifdef BLE_ENABLE
+  app_ble_mode_init();
+#endif
 #if OS_HAS_CPU_STAT
   cpu_usage_timer_id =
       osTimerCreate(osTimer(cpu_usage_timer), osTimerPeriodic, NULL);
@@ -2086,7 +2090,6 @@ int app_init(void) {
 #endif
 
 #ifdef BLE_ENABLE
-  app_ble_mode_init();
   app_ble_customif_init();
 #ifdef IBRT
   app_ble_force_switch_adv(BLE_SWITCH_USER_IBRT, false);

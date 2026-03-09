@@ -515,9 +515,6 @@ app_ibrt_battery_handle_process_normal(uint32_t status,
       ibrt_ctrl_t *p_ibrt_ctrl = app_tws_ibrt_get_bt_ctrl_ctx();
       TWSCON_DBLOG(1, "APP_BATTERY_CHARGER_PLUGOUT nv_role %02x",
                    p_ibrt_ctrl->nv_role);
-      if (p_ibrt_ctrl->nv_role == IBRT_UNKNOW) {
-        return;
-      }
       box_event = IBRT_FETCH_OUT_EVENT;
 
       if (app_box_handle_timer != NULL) {
@@ -568,9 +565,6 @@ static void box_det_handler(uint32_t val) {
   } else {
     box_event = IBRT_CLOSE_BOX_EVENT;
   }
-
-  if (p_ibrt_ctrl->nv_role == IBRT_UNKNOW)
-    return;
 
   if (app_box_handle_timer) {
     osTimerStop(app_box_handle_timer);
