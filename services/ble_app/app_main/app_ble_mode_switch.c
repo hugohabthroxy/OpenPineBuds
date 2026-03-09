@@ -425,13 +425,7 @@ static bool ble_adv_is_allowed(void) {
   }
 
   if (bleModeEnv.advSwitch) {
-    LOG_I("adv switched off:%d", bleModeEnv.advSwitch);
-    allowed_adv = false;
-  }
-
-  if (btapp_hfp_is_sco_active()) {
-    LOG_I("SCO ongoing");
-    allowed_adv = false;
+    LOG_I("adv switch set:0x%x (ignored for cueing)", bleModeEnv.advSwitch);
   }
 
   if (false == allowed_adv) {
