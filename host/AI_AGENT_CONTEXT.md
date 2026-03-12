@@ -37,7 +37,8 @@ The open_source target **excludes the entire BLE stack** unless BLE is enabled.
 
 - **[config/open_source/target.mk](config/open_source/target.mk):** `BLE ?= 1` enables the BLE stack and cueing service. **BLE is currently enabled** and the firmware boots successfully after memory optimizations and a crash fix.
 - If `BLE ?= 0`, the build skips `services/ble_app/`, `services/ble_profiles/`, and `services/ble_stack/` — the flashed firmware will have no BLE and the earbuds will not be discoverable via bleak (only classic Bluetooth will work).
-- BLE device name (for scanning) is defined in **[config/open_source/tgt_hardware.c](config/open_source/tgt_hardware.c):** `BLE_DEFAULT_NAME = "PineBuds Pro BLE"`. The host scripts must scan for `"PineBuds Pro BLE"`, not `"PineBuds Pro"` (the latter is the classic Bluetooth name).
+- **BLE device name:** The earbuds advertise over BLE as **"D&D TECH"** -- this is the factory-programmed name stored in the flash's factory section, which overrides the firmware-defined `BLE_DEFAULT_NAME`. The Classic Bluetooth name is **"PineBuds Pro"**. All host scripts default to `"D&D TECH"` and also accept `--address` for direct MAC connection.
+- BLE MAC addresses: **Right earbud = `12:34:56:C2:A2:30`**, **Left earbud = `12:34:56:C2:A2:31`**.
 
 ### Memory Optimizations (Required for BLE=1)
 
@@ -63,6 +64,8 @@ After the boot crash was fixed, BLE advertising was still not visible to scanner
 
 2. **BOX switch deadlock** (`services/app_ibrt/src/app_ibrt_search_pair_ui.cpp`): When the earbud boots in the case, the BOX advertising switch is set to "block." When taken out, the PLUGOUT handler should clear it, but it returned early when `nv_role == IBRT_UNKNOW`, creating a deadlock. Fix: removed the early returns in both the battery PLUGOUT handler and the GPIO box detection handler.
 
+3. **advSwitch bypass** (`services/ble_app/app_main/app_ble_mode_switch.c`): The `ble_adv_is_allowed()` function blocked advertising when `bleModeEnv.advSwitch != 0`. The switch was set by IBRT/box events and never cleared. Fix: changed to log the switch value but not block advertising. Also removed the `btapp_hfp_is_sco_active()` check.
+
 ### Firmware (C) -- New/Modified Files
 
 ```
@@ -87,6 +90,7 @@ services/
       app.c                        # Modified: service list + init
       app_task.c                   # Modified: message routing + conn params
       app_ble_core.c               # Modified: bypass IBRT_MASTER adv gate
+      app_ble_mode_switch.c        # Modified: bypass advSwitch gate, remove SCO check
     Makefile                       # Modified: added cueing sources
   app_ibrt/src/
     app_ibrt_search_pair_ui.cpp    # Modified: allow box events when nv_role unknown
@@ -211,17 +215,20 @@ The `cueing_fsm.py` can be integrated as the pipeline logic that sits between th
 14. **BLE advertising fix** — Bypassed two gates that blocked BLE advertising: (a) removed IBRT_MASTER role requirement in `app_ble_stub_user_data_fill_handler()`, (b) removed early returns in box event handlers when `nv_role == IBRT_UNKNOW`, allowing FETCH_OUT events to propagate and clear the BOX advertising switch.
 15. **ANC compile fix** — Wrapped `app_anc_key()` call in `app_ibrt_keyboard.cpp` with `#ifdef ANC_APP` since ANC was disabled.
 16. **Both earbuds flashed** — Left earbud via `bestool`, right earbud via Pine64 Windows programmer (`dld_main.exe`). Both boot and turn on normally.
+17. **advSwitch bypass** — Modified `ble_adv_is_allowed()` in `app_ble_mode_switch.c` to not block advertising when `bleModeEnv.advSwitch` is set, and removed the `btapp_hfp_is_sco_active()` check.
+18. **BLE GATT service confirmed working** — Connected to `12:34:56:C2:A2:30` via `scan_and_discover.py --address` and confirmed all four GATT services are visible, including the custom Audio Cueing Service (`ac000001-cafe-b0ba-f001-deadbeef0000`) with all three characteristics (Command, Status, Config).
+19. **Device name discovery** — Earbuds advertise as **"D&D TECH"** over BLE (factory-programmed name), not "PineBuds Pro BLE" (firmware-defined). Classic Bluetooth name is "PineBuds Pro".
+20. **Host scripts updated** — All Python scripts (`scan_and_discover.py`, `test_cueing.py`, `latency_benchmark.py`, `experiment_longevity.py`, `cueing_consumer.py`) updated with default BLE name `"D&D TECH"` and `--address` flag for direct MAC connection.
 
 ## What Remains To Be Done
 
-1. **Verify BLE advertising works** — After the advertising fix, rebuild, reflash, and run `python scan_and_discover.py` to confirm the cueing service UUID appears
-2. **End-to-end cueing test** — Run `python test_cueing.py` to verify audio playback via BLE command
-3. **Integration into aidfog repo** — port cueing_consumer.py and cueing_fsm.py into the HERMES structure at kuleuven-emedia/aidfog
-4. **Custom cueing tones** — replace default alert sounds with proper metronome clicks (swap .opus/.mp3 files in `config/_default_cfg_src_/res/en/`)
-5. **Latency characterization** — run benchmark on actual hardware, collect data for thesis
-6. **Longevity testing** — run multi-hour test on Raspberry Pi 5
-7. **Strategy comparison experiment** — run threshold vs FSM on recorded FoG dataset traces
-8. **Thesis writing** — document methodology, results, analysis
+1. **End-to-end cueing audio test** — Run `python test_cueing.py --address "12:34:56:C2:A2:30"` to verify audio actually plays through the earbuds (GATT writes are confirmed working; audio playback needs verification)
+2. **Latency characterization** — Run `python latency_benchmark.py --address "12:34:56:C2:A2:30" --iterations 100 --csv results.csv` on actual hardware, collect data for thesis
+3. **Integration into aidfog repo** — Port cueing_consumer.py and cueing_fsm.py into the HERMES structure at kuleuven-emedia/aidfog
+4. **Custom cueing tones** — Replace default alert sounds with proper metronome clicks (swap .opus/.mp3 files in `config/_default_cfg_src_/res/en/`)
+5. **Longevity testing** — Run multi-hour test on Raspberry Pi 5 or Windows laptop
+6. **Strategy comparison experiment** — Run threshold vs FSM on recorded FoG dataset traces
+7. **Thesis writing** — Document methodology, results, analysis
 
 ---
 
@@ -245,31 +252,31 @@ docker compose run --rm builder
 ./clear.sh           # Clean old build
 ./build.sh           # Compile firmware (1–5 min)
 
-# Option A: Flash via bestool (inside Docker, USB attached via usbipd)
-bestool write-image out/open_source/open_source.bin --port /dev/ttyACM0  # right earbud
-bestool write-image out/open_source/open_source.bin --port /dev/ttyACM1  # left earbud
-# For each: start command, then remove earbud from case, wait 3s, reinsert
+# Copy binary out of Docker (in separate PowerShell window):
+# docker cp openpinebuds-builder-1:/usr/src/out/open_source/open_source.bin "C:\Users\Hugo Alonso\FINAL MASTER THESIS\open_source.bin"
 
-# Option B: Flash via Pine64 programmer (Windows, outside Docker)
-# First detach USB from WSL, then copy binary out:
-# (In separate PowerShell): docker cp <container>:/usr/src/out/open_source/open_source.bin .
-# Open dld_main.exe, select COM port, tick APP, browse to open_source.bin
-# Take earbuds out, click All Start, put earbud in, wait for 100% green
+# Flash via Pine64 programmer (Windows, outside Docker) -- PREFERRED METHOD:
+# Open dld_main.exe, select COM5, tick APP, browse to open_source.bin
+# Take earbuds out, click All Start, put ONE earbud in, wait for 100% green
+# Remove, put OTHER earbud in, wait for 100% green
+
+# Note: bestool works for the left earbud but has "Bad Checksum" issues
+# with the right earbud. Use Pine64 programmer for both.
 
 exit
 
 # On Windows, outside Docker (earbuds out of case, powered on):
 cd host
 pip install -r requirements.txt
-python scan_and_discover.py                              # Scans for "PineBuds Pro"
-python scan_and_discover.py --name "PineBuds Pro BLE"   # Or scan BLE name specifically
-python test_cueing.py                                    # Play first cue
-python latency_benchmark.py --iterations 100 --csv results.csv
+python scan_and_discover.py                                                # Scans for "D&D TECH"
+python scan_and_discover.py --address "12:34:56:C2:A2:30"                 # Direct MAC connection
+python test_cueing.py --address "12:34:56:C2:A2:30"                       # Play first cue
+python latency_benchmark.py --address "12:34:56:C2:A2:30" --iterations 100 --csv results.csv
 ```
 
 **If earbuds don't turn on at all (no LED):** see [host/RESET_AND_RECOVERY.md](host/RESET_AND_RECOVERY.md) and use the official Pine64 Windows programmer + factory firmware (`AC08_20221102.bin`). Detach USB from WSL first.
 
-**If BLE scan finds no device:** Check that both earbuds are out of the case, powered on (blue LED on power-up), and that the firmware was built with `BLE=1`. UART logging at 2000000 baud can confirm BLE initialization (`CUEING: adding cueing profile service` in the log).
+**If BLE scan finds no device:** Earbuds advertise as **"D&D TECH"**, not "PineBuds Pro". Use `--address "12:34:56:C2:A2:30"` for direct connection. Ensure earbuds are out of the case and powered on. UART logging at 2000000 baud via PuTTY (Serial, COM5) can confirm BLE initialization.
 
 ---
 

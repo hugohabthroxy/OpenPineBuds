@@ -39,20 +39,24 @@ On the computer side (a laptop running Python), we wrote scripts that use a BLE 
 ### How many files were changed?
 
 - **6 new firmware files** (C code for the new BLE cueing service)
-- **13 existing firmware files modified** (registration, glue, memory optimization, boot crash fix, BLE advertising fix)
+- **14 existing firmware files modified** (registration, glue, memory optimization, boot crash fix, BLE advertising fix, advSwitch bypass)
 - **3 build/system fixes** (scripts/clean.mk, app_ble_rx_handler.h, app_bt_media_manager.h)
 - **9 new Python scripts** (host-side BLE communication and testing)
 - **Total: ~1500 lines of new C code, ~800 lines of Python**
 
 ### Current firmware status (for Q&A)
 
-The cueing service and BLE stack are implemented, the code builds, and **BLE is enabled** (`BLE ?= 1`). The firmware boots successfully on both earbuds after memory optimizations (ANC disabled, LDAC disabled, reduced trace buffer, single BLE connection) and two critical fixes:
+The cueing service and BLE stack are implemented, the code builds, BLE is enabled (`BLE ?= 1`), and **the custom GATT service has been verified working end-to-end**. A Python script successfully connected to the earbud at address `12:34:56:C2:A2:30` and enumerated all four GATT services including the Audio Cueing Service with its three characteristics (Command, Status, Config).
+
+The firmware boots successfully on both earbuds after memory optimizations (ANC disabled, LDAC disabled, reduced trace buffer, single BLE connection) and three critical fixes:
 
 1. **Boot crash fix** -- The BLE data structure initialization (`app_ble_mode_init()`) was moved earlier in the startup sequence so it runs before the battery/charging check, preventing a crash when the earbud boots inside the charging case.
 
 2. **BLE advertising fix** -- The firmware's IBRT (True Wireless Stereo) layer had two gates that blocked BLE advertising unless the earbuds had completed TWS self-pairing and one had assumed the MASTER role. These gates were bypassed so each earbud can advertise BLE independently.
 
-Both earbuds have been flashed with the custom firmware (left via `bestool`, right via the Pine64 Windows programmer) and boot normally.
+3. **advSwitch bypass** -- The `ble_adv_is_allowed()` function blocked advertising when any advertising switch bit was set by IBRT/box events. This was changed to log-only, allowing advertising regardless of switch state.
+
+Both earbuds have been flashed with the custom firmware using the Pine64 Windows programmer (`dld_main.exe`) and boot normally. The earbuds advertise over BLE as **"D&D TECH"** (factory-programmed name).
 
 ### The big picture in one diagram
 
@@ -361,15 +365,17 @@ These trade-offs are acceptable for our use case: ANC and LDAC are not needed fo
 
 ### 2.6 Boot Crash Fix and BLE Advertising Fix
 
-Two critical issues had to be solved beyond memory optimization:
+Three critical issues had to be solved beyond memory optimization:
 
 **Boot crash:** When the earbud boots in the charging case, the firmware detects "charging mode" and takes a shutdown path. This path calls `app_deinit()`, which calls `LinkDisconnectDirectly()`, which calls `app_ble_is_any_connection_exist()`. But `app_ble_mode_init()` was called *after* the battery check, so BLE data structures were uninitialized, causing a hard fault. The fix moved `app_ble_mode_init()` earlier in `apps.cpp`.
 
-**BLE advertising:** Even after booting successfully, the earbuds were invisible to BLE scanners. The firmware's IBRT (Interleaved BT Retransmission Technology) layer controls BLE advertising, and two gates blocked it:
+**BLE advertising (3 gates blocked it):** Even after booting successfully, the earbuds were invisible to BLE scanners. The firmware's IBRT (Interleaved BT Retransmission Technology) layer controls BLE advertising, and three gates blocked it:
 
 1. `app_ble_stub_user_data_fill_handler()` in `app_ble_core.c` only enabled advertising when `current_role == IBRT_MASTER`. After a fresh flash, `nv_role = IBRT_UNKNOW`, so advertising never started. Fix: always enable advertising.
 
 2. The BOX advertising switch (set when the earbud boots in the case) was never cleared because the PLUGOUT event handler returned early when `nv_role == IBRT_UNKNOW`. Fix: removed the early returns so box events propagate regardless of TWS pairing state.
+
+3. `ble_adv_is_allowed()` in `app_ble_mode_switch.c` blocked advertising when `bleModeEnv.advSwitch != 0`. The switch was set by IBRT/box events and never cleared in the fresh-flash scenario. Fix: changed to log the switch value but not use it as a blocking condition. Also removed the `btapp_hfp_is_sco_active()` check that could block advertising during HFP calls.
 
 ### 2.7 What We Did NOT Change
 
@@ -400,7 +406,7 @@ A single-source-of-truth for all UUIDs and command constants. Both the firmware 
 
 #### BLE Scanner (`scan_and_discover.py`)
 
-The first diagnostic tool. It scans the air, connects to the earbuds, and enumerates every GATT service. You use this to verify the cueing service actually shows up after flashing. The firmware advertises over BLE under the name **"PineBuds Pro BLE"** (defined in `config/open_source/tgt_hardware.c`); run with `--name "PineBuds Pro BLE"`. The name "PineBuds Pro" is used for classic Bluetooth only.
+The first diagnostic tool. It scans the air, connects to the earbuds, and enumerates every GATT service. You use this to verify the cueing service actually shows up after flashing. The earbuds advertise over BLE under the name **"D&D TECH"** (factory-programmed name that overrides the firmware-defined `BLE_DEFAULT_NAME`). The name "PineBuds Pro" is used for Classic Bluetooth only. The script supports `--address "12:34:56:C2:A2:30"` for direct MAC connection.
 
 #### End-to-End Test (`test_cueing.py`)
 
@@ -456,17 +462,18 @@ Designed as a HERMES Pipeline component that sits between the AI detector and th
 | 16 | `target.mk` | Modified | BLE=1, ANC=0, LDAC=0, single BLE conn, reduced trace, no core dump |
 | 17 | `apps.cpp` | Modified | Moved app_ble_mode_init() before battery check (boot crash fix) |
 | 18 | `app_ble_core.c` | Modified | Bypass IBRT_MASTER advertising gate |
-| 19 | `app_ibrt_search_pair_ui.cpp` | Modified | Allow box events when nv_role is UNKNOW (advertising fix) |
-| 20 | `app_ibrt_keyboard.cpp` | Modified | Guard app_anc_key() with #ifdef ANC_APP |
-| 21 | `cueing_uuids.py` | New | UUID definitions |
-| 22 | `scan_and_discover.py` | New | BLE scanner |
-| 23 | `test_cueing.py` | New | End-to-end test |
-| 24 | `latency_benchmark.py` | New | Latency measurement + export |
-| 25 | `cueing_consumer.py` | New | HERMES consumer + auto-reconnect |
-| 26 | `cueing_fsm.py` | New | Cueing control FSM |
-| 27 | `experiment_longevity.py` | New | Multi-hour stability test |
-| 28 | `experiment_compare_strategies.py` | New | Strategy comparison |
-| 29 | `requirements.txt` | New | Python deps |
-| 30 | `scripts/clean.mk` | Modified | Handle directory entries in multi-object deps for clean |
-| 31 | `app_ble_rx_handler.h` | Modified | Add `<stdint.h>` for uint8_t/uint16_t |
-| 32 | `app_bt_media_manager.h` | Modified | Add `enum` keyword for C compatibility |
+| 19 | `app_ble_mode_switch.c` | Modified | Bypass advSwitch gate, remove SCO check in ble_adv_is_allowed() |
+| 20 | `app_ibrt_search_pair_ui.cpp` | Modified | Allow box events when nv_role is UNKNOW (advertising fix) |
+| 21 | `app_ibrt_keyboard.cpp` | Modified | Guard app_anc_key() with #ifdef ANC_APP |
+| 22 | `cueing_uuids.py` | New | UUID definitions |
+| 23 | `scan_and_discover.py` | New | BLE scanner + `--address` support |
+| 24 | `test_cueing.py` | New | End-to-end test + `--address` support |
+| 25 | `latency_benchmark.py` | New | Latency measurement + export + `--address` support |
+| 26 | `cueing_consumer.py` | New | HERMES consumer + auto-reconnect + `address` param |
+| 27 | `cueing_fsm.py` | New | Cueing control FSM |
+| 28 | `experiment_longevity.py` | New | Multi-hour stability test + `--address` support |
+| 29 | `experiment_compare_strategies.py` | New | Strategy comparison |
+| 30 | `requirements.txt` | New | Python deps |
+| 31 | `scripts/clean.mk` | Modified | Handle directory entries in multi-object deps for clean |
+| 32 | `app_ble_rx_handler.h` | Modified | Add `<stdint.h>` for uint8_t/uint16_t |
+| 33 | `app_bt_media_manager.h` | Modified | Add `enum` keyword for C compatibility |

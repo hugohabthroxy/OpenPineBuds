@@ -45,12 +45,14 @@ class CueingConsumer:
     parameters, plus the HERMES Consumer interface (setup/process/teardown).
     """
 
-    def __init__(self, device_name: str = "PineBuds Pro",
+    def __init__(self, device_name: str = "D&D TECH",
+                 address: str = None,
                  scan_timeout: float = 10.0,
                  max_reconnect_attempts: int = 5,
                  reconnect_delay: float = 2.0,
                  reconnect_backoff: float = 1.5):
         self.device_name = device_name
+        self.address = address
         self.scan_timeout = scan_timeout
         self.max_reconnect_attempts = max_reconnect_attempts
         self.reconnect_delay = reconnect_delay
@@ -131,18 +133,24 @@ class CueingConsumer:
         self._reconnecting = False
 
     async def _do_connect(self) -> bool:
-        device = await BleakScanner.find_device_by_name(
-            self.device_name, timeout=self.scan_timeout
-        )
-        if device is None:
-            logger.warning("Device '%s' not found during scan",
-                           self.device_name)
-            return False
+        if self.address:
+            logger.info("Connecting directly to %s...", self.address)
+            target = self.address
+        else:
+            device = await BleakScanner.find_device_by_name(
+                self.device_name, timeout=self.scan_timeout
+            )
+            if device is None:
+                logger.warning("Device '%s' not found during scan",
+                               self.device_name)
+                return False
+            logger.info("Found %s [%s], connecting...", device.name,
+                        device.address)
+            target = device
 
-        logger.info("Found %s [%s], connecting...", device.name,
-                    device.address)
         self._client = BleakClient(
-            device, disconnected_callback=self._on_disconnect
+            target, disconnected_callback=self._on_disconnect,
+            timeout=15.0
         )
         await self._client.connect()
         self._connected = True

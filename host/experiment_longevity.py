@@ -65,7 +65,8 @@ def notification_handler(sender, data: bytearray):
 
 
 async def run_longevity_test(device_name: str, duration_s: float,
-                             cycle_interval_s: float, csv_path: str | None):
+                             cycle_interval_s: float, csv_path: str | None,
+                             address: str = None):
     results = []
     disconnects = 0
     timeouts = 0
@@ -76,12 +77,17 @@ async def run_longevity_test(device_name: str, duration_s: float,
     logger.info("Starting longevity test: %.1f hours, cycle every %.0fs",
                 duration_s / 3600, cycle_interval_s)
 
-    device = await BleakScanner.find_device_by_name(device_name, timeout=15.0)
-    if device is None:
-        logger.error("Device '%s' not found", device_name)
-        return
+    if address:
+        logger.info("Using direct address: %s", address)
+        target = address
+    else:
+        device = await BleakScanner.find_device_by_name(device_name, timeout=15.0)
+        if device is None:
+            logger.error("Device '%s' not found", device_name)
+            return
+        target = device
 
-    client = BleakClient(device)
+    client = BleakClient(target, timeout=15.0)
 
     async def connect():
         nonlocal disconnects
@@ -236,8 +242,10 @@ async def run_longevity_test(device_name: str, duration_s: float,
 
 def main():
     parser = argparse.ArgumentParser(description="BLE cueing longevity test")
-    parser.add_argument("--name", default="PineBuds Pro",
-                        help="BLE device name")
+    parser.add_argument("--name", default="D&D TECH",
+                        help="BLE device name (default: 'D&D TECH')")
+    parser.add_argument("--address",
+                        help="Connect directly by BLE MAC address")
     parser.add_argument("--duration", default="4h",
                         help="Test duration (e.g., 4h, 30m, 1h30m)")
     parser.add_argument("--interval", type=float, default=10.0,
@@ -248,7 +256,8 @@ def main():
 
     duration_s = parse_duration(args.duration)
     asyncio.run(run_longevity_test(args.name, duration_s,
-                                   args.interval, args.csv))
+                                   args.interval, args.csv,
+                                   getattr(args, 'address', None)))
 
 
 if __name__ == "__main__":

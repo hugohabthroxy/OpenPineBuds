@@ -2,8 +2,9 @@
 End-to-end audio cueing test.
 
 Usage:
-    python test_cueing.py [--name "PineBuds Pro"] [--tone 0] [--volume 80]
+    python test_cueing.py [--name "D&D TECH"] [--tone 0] [--volume 80]
                           [--duration 3.0] [--burst-count 1] [--burst-gap 0]
+    python test_cueing.py --address "12:34:56:C2:A2:30"
 
 This script:
   1. Connects to the PineBuds Pro
@@ -54,16 +55,23 @@ def status_callback(sender, data: bytearray):
 
 async def test_cueing(device_name: str, tone_id: int, volume: int,
                       cue_duration: float, burst_count: int,
-                      burst_gap_ms: int, duration_ms: int):
-    print(f"Scanning for '{device_name}'...")
-    device = await BleakScanner.find_device_by_name(device_name, timeout=10.0)
-    if device is None:
-        print(f"Device '{device_name}' not found.")
-        return
+                      burst_gap_ms: int, duration_ms: int,
+                      address: str = None):
+    if address:
+        print(f"Connecting directly to {address}...")
+        target = address
+    else:
+        print(f"Scanning for '{device_name}'...")
+        device = await BleakScanner.find_device_by_name(device_name, timeout=10.0)
+        if device is None:
+            print(f"Device '{device_name}' not found.")
+            return
+        print(f"Found: {device.name} [{device.address}]")
+        target = device
 
-    print(f"Connecting to {device.name} [{device.address}]...")
+    print("Connecting...")
 
-    async with BleakClient(device) as client:
+    async with BleakClient(target, timeout=15.0) as client:
         print(f"Connected. MTU: {client.mtu_size}")
 
         print("Subscribing to Cue Status notifications...")
@@ -148,8 +156,11 @@ async def test_cueing(device_name: str, tone_id: int, volume: int,
 def main():
     parser = argparse.ArgumentParser(
         description="Test PineBuds Pro audio cueing")
-    parser.add_argument("--name", default="PineBuds Pro",
-                        help="BLE device name")
+    parser.add_argument("--name", default="D&D TECH",
+                        help="BLE device name (default: 'D&D TECH')")
+    parser.add_argument("--address",
+                        help="Connect directly by BLE MAC address "
+                             "(e.g. '12:34:56:C2:A2:30')")
     parser.add_argument("--tone", type=int, default=0,
                         help="Tone ID (0=beep, 1=click, 2=chirp, 3-4=extra)")
     parser.add_argument("--volume", type=int, default=80,
@@ -166,7 +177,7 @@ def main():
 
     asyncio.run(test_cueing(args.name, args.tone, args.volume, args.duration,
                             args.burst_count, args.burst_gap,
-                            args.tone_duration))
+                            args.tone_duration, args.address))
 
 
 if __name__ == "__main__":

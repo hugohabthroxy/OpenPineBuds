@@ -84,8 +84,8 @@ def main():
         description="Scan and discover PineBuds Pro GATT services"
     )
     parser.add_argument(
-        "--name", default="PineBuds Pro",
-        help="BLE device name to search for"
+        "--name", default="D&D TECH",
+        help="BLE device name to search for (default: 'D&D TECH')"
     )
     parser.add_argument(
         "--address", default=None,

@@ -6,8 +6,9 @@ the corresponding status notification. Reports statistics and optionally
 exports raw data to CSV for thesis analysis.
 
 Usage:
-    python latency_benchmark.py [--name "PineBuds Pro"] [--iterations 100]
+    python latency_benchmark.py [--name "D&D TECH"] [--iterations 100]
                                 [--csv results.csv] [--warmup 5]
+    python latency_benchmark.py --address "12:34:56:C2:A2:30"
 """
 
 import asyncio
@@ -76,16 +77,25 @@ def print_stats(label: str, latencies: list):
 
 async def measure_latency(device_name: str, iterations: int,
                           warmup: int, csv_path: str | None,
-                          use_write_no_response: bool):
-    print(f"Scanning for '{device_name}'...")
-    device = await BleakScanner.find_device_by_name(device_name, timeout=10.0)
-    if device is None:
-        print(f"Device '{device_name}' not found.")
-        return
+                          use_write_no_response: bool,
+                          address: str = None):
+    if address:
+        print(f"Connecting directly to {address}...")
+        target = address
+        device_label = address
+    else:
+        print(f"Scanning for '{device_name}'...")
+        device = await BleakScanner.find_device_by_name(device_name, timeout=10.0)
+        if device is None:
+            print(f"Device '{device_name}' not found.")
+            return
+        print(f"Found: {device.name} [{device.address}]")
+        target = device
+        device_label = f"{device.name} [{device.address}]"
 
-    print(f"Connecting to {device.name} [{device.address}]...")
+    print("Connecting...")
 
-    async with BleakClient(device) as client:
+    async with BleakClient(target, timeout=15.0) as client:
         print(f"Connected. MTU: {client.mtu_size}")
 
         await client.start_notify(CUE_STATUS_CHAR_UUID, notification_handler)
@@ -164,7 +174,7 @@ async def measure_latency(device_name: str, iterations: int,
         print("\n" + "=" * 60)
         print("LATENCY BENCHMARK RESULTS")
         print("=" * 60)
-        print(f"Device:     {device.name} [{device.address}]")
+        print(f"Device:     {device_label}")
         print(f"MTU:        {client.mtu_size}")
         print(f"Iterations: {iterations} (+ {warmup} warmup)")
         print(f"Write mode: {'No Response' if use_write_no_response else 'With Response'}")
@@ -196,8 +206,8 @@ async def measure_latency(device_name: str, iterations: int,
 
         # --- JSON summary ---
         summary = {
-            "device": device.name,
-            "address": device.address,
+            "device": device_label,
+            "address": address if address else device.address,
             "mtu": client.mtu_size,
             "iterations": iterations,
             "write_mode": "no_response" if use_write_no_response
@@ -229,8 +239,11 @@ async def measure_latency(device_name: str, iterations: int,
 def main():
     parser = argparse.ArgumentParser(
         description="BLE cueing latency benchmark")
-    parser.add_argument("--name", default="PineBuds Pro",
-                        help="BLE device name")
+    parser.add_argument("--name", default="D&D TECH",
+                        help="BLE device name (default: 'D&D TECH')")
+    parser.add_argument("--address",
+                        help="Connect directly by BLE MAC address "
+                             "(e.g. '12:34:56:C2:A2:30')")
     parser.add_argument("--iterations", type=int, default=100,
                         help="Number of START/STOP measurement cycles")
     parser.add_argument("--warmup", type=int, default=5,
@@ -243,7 +256,7 @@ def main():
 
     asyncio.run(measure_latency(
         args.name, args.iterations, args.warmup, args.csv,
-        args.no_response))
+        args.no_response, getattr(args, 'address', None)))
 
 
 if __name__ == "__main__":
