@@ -1,97 +1,135 @@
-# PineBuds Pro — Reset and recovery (detailed)
+# PineBuds Pro -- Reset and Recovery
 
-Your earbuds are not turning on after flashing. Use this guide to try to recover them.
-
----
-
-## Clarifications (models and LEDs)
-
-- **Your unit:** You said the earbuds have no visible buttons and that open/closed lid doesn’t matter. That may be a different hardware revision; the official manual describes units with touch/button areas on the earbuds.
-- **Purple LED:** In the official user manual, the **purple LED is on the earbuds** (after the “reset the earbuds” button sequence), not necessarily on the case. So if you only press a **case** button, you may never see purple — that’s normal.
-- **Case reset button:** Some PineBuds Pro cases have a small **physical reset button** on the case (between the two bud seats). It resets the **case** (e.g. from “safety off” mode). It may not produce any LED; the case might just reset.
+Use this guide if the earbuds stop responding after flashing, or if you need to restore factory firmware.
 
 ---
 
-## Part A — Case reset button (if your case has one)
+## Quick Decision Tree
 
-**Where to look**
-
-- Open the lid.
-- Look at the **base** (the part that holds the two earbuds), in the **middle** between the two depressions where the buds sit.
-- The button is a small, recessed hole or bump — easy to miss. You may need a bright light.
-- If there’s nothing there, your case may not have this button; skip to Part B.
-
-**How to press**
-
-- Use a **SIM-eject tool**, **paperclip**, or **toothpick** (not your finger, it’s too big).
-- **Earbuds:** Try **with both earbuds in the case** first (lid open).
-- **Press:** Short, firm press for about **2–3 seconds**, then release.
-- **If nothing happens:** Try again with earbuds **out** of the case, same 2–3 second press.
-
-**What to expect**
-
-- You might see **no LED** — the case may just reset internally.
-- If anything on the case (e.g. white charging LEDs) blinks or changes, note it.
-- Then try taking the earbuds out and see if they power on (LED or sound).
+```
+Earbuds not working after flash?
+  │
+  ├─ LEDs still work (red/blue when taken out of case)?
+  │   └─ Reflash with Pine64 programmer (Part B) — PREFERRED
+  │
+  ├─ No LED at all?
+  │   ├─ Try case reset button (Part A)
+  │   └─ If no button or no change → drain battery (Part C) → then Part B
+  │
+  └─ bestool stuck at "Syncing into bootloader"?
+      └─ Use Pine64 programmer instead (Part B)
+```
 
 ---
 
-## Part B — Earbud “buttons” (if your buds have them)
+## Part A -- Case Reset Button
 
-The manual describes **touch/button areas** on each earbud (often near the logo), not always obvious.
+Some PineBuds Pro cases have a small physical reset button between the two earbud seats.
 
-**If the earbuds are completely dead (no LED at all)**  
-This procedure won’t work until they at least power on. Rely on Part A and Part C.
+1. Open the lid
+2. Look at the base between the two depressions where the buds sit
+3. The button is a small, recessed hole -- use a SIM-eject tool or paperclip
+4. Press and hold for 2-3 seconds with both earbuds in the case
+5. Take the earbuds out and see if they power on (LED or sound)
 
-**If one or both earbuds sometimes show an LED** (e.g. red when in case):
-
-1. Take **one** earbud out of the case.
-2. Find the touch area (often the flat part with the logo).
-3. **Press and hold** for **5 seconds** — manual says LED goes red then it shuts down.
-4. Do the same for the **other** earbud.
-5. Then **press and hold on both earbuds** until the LED flashes **red and blue**.
-6. **Tap** the button **5 times** — manual says LED should flash **purple** then turn off.
-7. Put **both** earbuds in the case for **30 seconds**, then take them out and test.
+If your case has no button, skip to Part B.
 
 ---
 
-## Part C — Reflash with bestool (after any reset)
+## Part B -- Pine64 Windows Programmer (Preferred Flashing Method)
 
-Goal: get the chip to reboot so bestool can sync.
+This is the most reliable way to flash firmware. It works when `bestool` fails.
 
-1. **USB:** Case connected to PC; in PowerShell (Admin) attach the two USB devices to WSL so Docker sees them (`usbipd bind` / `attach`).
-2. **Docker:** In the container run:
-   ```bash
-   bestool write-image out/open_source/open_source.bin --port /dev/ttyACM0
-   ```
-   Leave this **running** (it will wait at “Syncing into bootloader”).
-3. **Trigger reboot:**  
-   **Right earbud:** take it **out** of the case → wait **3 seconds** → put it **back in**.  
-   Do this **while** bestool is already waiting. If sync works, it will flash that bud.
-4. Repeat for the **left** earbud with `/dev/ttyACM1`.
+**Prerequisites:**
+- Download the programmer: https://files.pine64.org/os/PineBudsPro/PineBuds%20Pro%20programmer%20v1.48.zip
+- Download factory firmware (for recovery): https://files.pine64.org/os/PineBudsPro/AC08_20221102.bin
+- USB cable connected from charging case to Windows PC
+- **Detach USB from WSL/Docker first** if it was attached (in PowerShell: `usbipd detach --busid <ID>`)
 
-If you did a case reset (Part A), do the “trigger reboot” step **right after** the reset to maximize the chance bestool catches the boot.
+**Steps:**
+
+1. Unzip the programmer and run `dld_main.exe`
+2. Select the correct COM port (typically **COM5**)
+3. Tick the **APP** checkbox
+4. Browse to the firmware file:
+   - For custom firmware: `open_source.bin` (copied out of Docker)
+   - For factory recovery: `AC08_20221102.bin`
+5. Take **both earbuds OUT** of the case
+6. Click **All Start**
+7. Put **one earbud** into the case
+8. Wait for the progress bar to reach 100% (green)
+9. Remove that earbud, put the **other earbud** in
+10. Wait for 100% green again
+11. Remove earbud, close the programmer
+
+**After flashing:** Take both earbuds out of the case, wait 5-10 seconds for them to boot. You should see LEDs and/or hear a power-on tone.
+
+**To copy the custom firmware out of Docker:**
+
+```powershell
+docker cp openpinebuds-builder-1:/usr/src/out/open_source/open_source.bin "C:\Users\Hugo Alonso\FINAL MASTER THESIS\open_source.bin"
+```
 
 ---
 
-## Part D — Official Pine64 Windows programmer (if bestool never syncs)
+## Part C -- Battery Drain (Last Resort)
 
-1. **Download on Windows:**
-   - Programmer: https://files.pine64.org/os/PineBudsPro/PineBuds%20Pro%20programmer%20v1.48.zip  
-   - Factory firmware: https://files.pine64.org/os/PineBudsPro/AC08_20221102.bin  
-   - Manual: https://files.pine64.org/os/PineBudsPro/PineBuds%20Pro%20programmer%20user%20manual.pdf  
-2. **Unzip** the programmer and **detach** the USB devices from WSL so Windows sees the COM ports.
-3. Open the programmer, load `AC08_20221102.bin`, and follow its manual to flash **both** earbuds (one COM port per bud).
+If the earbud is completely stuck (no LED, no response to case reset, programmer can't connect):
+
+1. Take the earbud out of the case
+2. Leave it on a desk for **24-48 hours** until the 40 mAh battery is completely drained
+3. Put it back in the case to charge for 5 minutes
+4. The ROM bootloader always runs on power-on -- this gives the programmer a window to sync
+5. Immediately try Part B
+
+---
+
+## Part D -- bestool (Alternative, Less Reliable)
+
+`bestool` works for the **left earbud** but has intermittent "Bad Checksum" errors with the right earbud. Use the Pine64 programmer (Part B) instead when possible.
+
+If you still want to try bestool (inside Docker container):
+
+```bash
+bestool write-image out/open_source/open_source.bin --port /dev/ttyACM1
+```
+
+1. Start the command (it waits at "Syncing into bootloader")
+2. Take the earbud **out** of the case
+3. Wait 3 seconds
+4. Put it **back in** the case
+5. bestool should detect the reboot and begin flashing
+
+The ports are usually:
+- `/dev/ttyACM0` = right earbud
+- `/dev/ttyACM1` = left earbud
+
+USB must be attached to WSL/Docker first:
+
+```powershell
+usbipd list                    # Find the CH342 device
+usbipd bind --busid <ID>      # First time only
+usbipd attach --wsl --busid <ID>
+```
+
+---
+
+## Earbud Addresses (for reference)
+
+| Earbud | BLE MAC | Classic BT Name |
+|--------|---------|-----------------|
+| Right | `12:34:56:C2:A2:30` | PineBuds Pro |
+| Left | `12:34:56:C2:A2:31` | PineBuds Pro |
+
+BLE advertising name: **"D&D TECH"** (factory-programmed, overrides firmware default).
 
 ---
 
 ## Summary
 
-| Step | What you do | If it works / doesn’t |
-|------|-------------|------------------------|
-| A    | Find and press case reset button (2–3 s), earbuds in then out | No purple is OK; try taking buds out to see if they power on. Then try Part C. |
-| B    | Only if buds ever show LED: earbud reset (5 s hold, then both, then 5 taps) | Purple on **earbuds** = reset done. Then Part C. |
-| C    | bestool already running, then remove → 3 s → reinsert each bud | Sync and flash; buds should boot with BLE=0 firmware. |
-| D    | Official Windows programmer + factory .bin | Restores stock firmware; then we can reflash our BLE=0 build. |
-
-You were right to ask for more detail: the manual’s purple LED is on the **earbuds**, and the case button (if present) may not show any LED. Use Part A and C first; if the case has no button or bestool never syncs, use Part D.
+| Method | Reliability | When to Use |
+|--------|-------------|-------------|
+| Pine64 programmer (`dld_main.exe`) | High | Always preferred for flashing |
+| Case reset button | Medium | First thing to try if earbuds are unresponsive |
+| bestool | Medium | Works for left earbud; use inside Docker |
+| Battery drain | Last resort | When nothing else works |

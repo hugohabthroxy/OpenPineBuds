@@ -32,7 +32,7 @@ flowchart LR
 
 Think of a BLE device like a **restaurant with a menu**.
 
-- The **restaurant** is the earbud. It advertises its name ("PineBuds Pro") so nearby devices can find it.
+- The **restaurant** is the earbud. It advertises its name ("D&D TECH" over BLE) so nearby devices can find it.
 - A **menu** is called a **GATT Service**. It is a group of related things the earbud can do. Each service has a unique ID (called a UUID) so it can be told apart from other services.
 - Each **dish on the menu** is called a **Characteristic**. A characteristic is a single piece of data you can interact with. Some characteristics you can read (like checking the price), some you can write to (like placing an order), and some can send you updates automatically (called "notifications" — like the waiter telling you your food is ready).
 
@@ -121,37 +121,124 @@ The firmware does not automatically discover new code. Several existing files ha
 
 ---
 
-## 4. What We Added on the Computer Side (Python)
+## 4. Memory Optimizations
+
+The BES2300YP chip inside the PineBuds Pro has only 992 KB of SRAM, shared between the operating system, audio codecs, Bluetooth Classic, the BLE host stack, and application code. Enabling the full BLE stack required disabling non-essential features to free enough RAM:
+
+| What was disabled | Config flag | Why it's OK |
+|---|---|---|
+| Active Noise Cancellation (ANC) | `ANC_APP=0` and related flags | Not needed for cueing |
+| LDAC audio codec | `A2DP_LDAC_ON=0` | High-quality codec not needed for alert tones |
+| Dual BLE connections | `IS_USE_BLE_DUAL_CONNECTION=0` | Only one laptop connects at a time |
+| Large trace buffer | `TRACE_BUF_SIZE := 4*1024` (was 16 KB) | Debugging still works, just smaller buffer |
+| Core dump | `CORE_DUMP=0` | Saves RAM; not needed in production |
+
+All of these are **build flags** in `config/open_source/target.mk`. Nothing was deleted from the codebase -- any feature can be re-enabled by changing the flag back, as long as the total RAM fits.
+
+---
+
+## 5. Bug Fixes Required to Make BLE Work
+
+Three critical bugs had to be fixed after enabling BLE. Without these fixes, the earbuds either crashed on boot or were invisible to BLE scanners.
+
+### 5a. Boot Crash Fix
+
+**Problem:** When the earbud boots inside the charging case, the firmware detects "charging mode" and takes a shutdown path. This path eventually called a BLE function (`app_ble_is_any_connection_exist()`) -- but the BLE data structures had not been initialized yet, because the initialization call happened *after* the charging check. This caused a hard crash (the earbud got stuck with a constant red LED).
+
+**Fix:** Moved `app_ble_mode_init()` earlier in the startup sequence (`apps/main/apps.cpp`), before the battery/charging check. Now BLE data structures are always initialized, regardless of whether the earbud is charging or not.
+
+### 5b. BLE Advertising Fix (3 gates)
+
+**Problem:** Even after booting successfully, the earbuds were invisible to BLE scanners. Three separate "gates" in the firmware's IBRT (True Wireless Stereo) layer were blocking advertising:
+
+**Gate 1 -- IBRT Master role** (`services/ble_app/app_main/app_ble_core.c`):
+The firmware only enabled BLE advertising when the earbud had the role `IBRT_MASTER` (meaning it had completed TWS pairing with the other earbud and was designated as the master). After a fresh flash, both earbuds have role `IBRT_UNKNOW`, so neither would ever advertise.
+*Fix:* Changed to always enable advertising regardless of role.
+
+**Gate 2 -- Box event deadlock** (`services/app_ibrt/src/app_ibrt_search_pair_ui.cpp`):
+When the earbud boots in the case, an advertising "switch" is set to block advertising (because the earbud is in the box). When you take the earbud out, a "plug out" event should clear this switch. But the plug-out handler returned early when the role was `IBRT_UNKNOW`, so the switch was never cleared.
+*Fix:* Removed the early returns so box events propagate regardless of TWS pairing state.
+
+**Gate 3 -- advSwitch blocking** (`services/ble_app/app_main/app_ble_mode_switch.c`):
+The `ble_adv_is_allowed()` function checked `bleModeEnv.advSwitch` and blocked advertising if any bit was set. Combined with Gate 2, this created a permanent block.
+*Fix:* Changed to log the switch value but not use it as a blocking condition.
+
+### 5c. ANC Compile Fix
+
+**Problem:** Disabling ANC (`ANC_APP=0`) caused a build error because `app_anc_key()` was called unconditionally in `app_ibrt_keyboard.cpp`.
+
+**Fix:** Wrapped the call with `#ifdef ANC_APP`.
+
+### 5d. Build System Fixes
+
+- `scripts/clean.mk` -- Clean target failed when composite objects had directory entries. Fixed by adding them to the subdirectory clean list.
+- `services/ble_app/app_main/app_ble_rx_handler.h` -- Missing `#include <stdint.h>` when BLE was enabled.
+- `services/bt_app/app_bt_media_manager.h` -- Missing `enum` keyword for C compatibility.
+
+---
+
+## 6. What We Added on the Computer Side (Python)
 
 All Python scripts live in the `host/` directory. They use a library called **bleak**, which lets Python talk to BLE devices on Windows, Mac, or Linux.
+
+**Important:** The earbuds advertise over BLE as **"D&D TECH"** (the factory-programmed name), not "PineBuds Pro" (that's the Classic Bluetooth name). All scripts default to "D&D TECH" and also support `--address` for direct MAC connection.
 
 - `host/cueing_uuids.py`
   A small file that defines all the UUIDs and command constants in one place. Every other script imports from here, so if a UUID ever changes, you only update it once.
 
 - `host/scan_and_discover.py`
-  **Step 1 test.** Scans the air for BLE devices, connects to the PineBuds Pro, and lists every GATT service and characteristic it finds. You run this first to confirm the custom cueing service actually shows up after flashing the new firmware.
+  **Step 1 test.** Scans the air for BLE devices, connects to the earbuds, and lists every GATT service and characteristic it finds. Supports `--address "12:34:56:C2:A2:30"` for direct connection.
 
 - `host/test_cueing.py`
-  **Step 2 test.** Connects, subscribes to status notifications, sends a "start cue" command, waits a few seconds, then sends "stop." It prints the status notifications it receives and measures the time between sending a command and getting the acknowledgment back (latency).
+  **Step 2 test.** Connects, subscribes to status notifications, sends a "start cue" command, waits a few seconds, then sends "stop." Prints latency measurements. Supports `--address`.
 
 - `host/latency_benchmark.py`
-  **Step 3 test.** Runs many start/stop cycles automatically and computes statistics (mean, median, min, max, standard deviation) on the round-trip latency. This data goes into the thesis to characterize system performance.
+  **Step 3 test.** Runs many start/stop cycles automatically and computes statistics (mean, median, P5-P99, standard deviation) on the round-trip latency. Exports raw data to CSV and summary to JSON. Supports `--address`.
 
 - `host/cueing_consumer.py`
-  **HERMES integration.** Wraps all the BLE logic into a class with three methods that match the HERMES framework interface: `setup()` (connect at pipeline start), `process()` (handle incoming commands from the AI pipeline), and `teardown()` (disconnect at pipeline stop). This is what plugs into the larger FOG detection system.
+  **HERMES integration.** Wraps all the BLE logic into a class with three methods that match the HERMES framework interface: `setup()` (connect at pipeline start), `process()` (handle incoming commands from the AI pipeline), and `teardown()` (disconnect at pipeline stop). Supports direct `address` parameter.
+
+- `host/cueing_fsm.py`
+  **Cueing controller.** Two strategies: simple threshold with hysteresis, and a full state machine (IDLE -> CUEING -> COOLDOWN -> IDLE). Designed as a HERMES Pipeline component.
+
+- `host/experiment_longevity.py`
+  Multi-hour stability test that tracks disconnects and latency drift. Supports `--address`.
+
+- `host/experiment_compare_strategies.py`
+  Replays recorded FoG traces through both cueing strategies and compares sensitivity, precision, false positives, and detection latency.
 
 - `host/requirements.txt`
   Lists the Python dependency: `bleak>=0.21.0`. Install with `pip install -r requirements.txt`.
 
 ---
 
-## 5. How to Use It End-to-End
+## 7. Current Status (March 12, 2026)
 
-The development workflow uses two laptops because firmware compilation requires a specific Docker-based Linux toolchain, and BLE testing requires a machine physically near the earbuds.
+The system is **confirmed working end-to-end**. A Python script on the Windows laptop successfully:
+- Connected to the earbud at `12:34:56:C2:A2:30` over BLE
+- Enumerated the custom Audio Cueing GATT service with all three characteristics
+- Sent START/STOP/CONFIGURE commands and received status notifications
+- Measured latency across 100 iterations with 0 timeouts
+
+**Benchmark results:**
+
+| Metric | Value |
+|--------|-------|
+| Mean round-trip | 28.36 ms |
+| Median round-trip | 25.01 ms |
+| P95 | 43.72 ms |
+| P99 | 52.76 ms |
+| Reliability | 100% (0 timeouts in 200 operations) |
+
+---
+
+## 8. How to Use It End-to-End
+
+The development workflow uses a single MacBook: macOS for code editing, Windows (Boot Camp) for building and testing.
 
 ```mermaid
 flowchart TD
-    subgraph mac ["MacBook Air (Development)"]
+    subgraph mac ["macOS (Development)"]
         Edit["Edit code in Cursor"]
         Push["git push"]
         Edit --> Push
@@ -159,10 +246,10 @@ flowchart TD
     subgraph github ["GitHub"]
         Repo["Shared Repository"]
     end
-    subgraph win ["Windows Laptop (Build & Test)"]
+    subgraph win ["Windows Boot Camp (Build & Test)"]
         Pull["git pull"]
         Build["Docker: ./build.sh"]
-        Flash["bestool: flash firmware"]
+        Flash["Pine64 programmer:\ndld_main.exe"]
         Test["Python: run test scripts"]
         Pull --> Build
         Build --> Flash
@@ -181,41 +268,53 @@ flowchart TD
 
 1. **Edit** the firmware C code or Python scripts on the Mac in Cursor.
 2. **Push** to GitHub: `git add -A && git commit -m "..." && git push`
-3. On the Windows laptop, **pull**: `git pull`
-4. **Build** the firmware: `./start_dev.sh` (enters the Docker container), then `./build.sh`
-5. **Flash** the firmware onto the earbuds via USB-C through the charging case: `bestool` writes the binary
-6. Take the earbuds out of the case, let them boot with the new firmware
-7. **Run** `python host/scan_and_discover.py` to verify the cueing service is visible
-8. **Run** `python host/test_cueing.py` to test audio cueing end-to-end
-9. **Run** `python host/latency_benchmark.py` to measure performance for the thesis
+3. On Windows, **pull**: `git pull`
+4. **Build** the firmware: `docker compose run --rm builder`, then `./clear.sh && ./build.sh`
+5. **Copy binary out** of Docker: `docker cp openpinebuds-builder-1:/usr/src/out/open_source/open_source.bin .`
+6. **Flash** using Pine64 programmer (`dld_main.exe`): select COM5, tick APP, browse to binary, take earbuds out, click All Start, put one earbud in, wait for 100% green, repeat for second earbud
+7. Take both earbuds out of the case, wait for them to boot
+8. **Run** `python host/scan_and_discover.py --address "12:34:56:C2:A2:30"` to verify the cueing service is visible
+9. **Run** `python host/test_cueing.py --address "12:34:56:C2:A2:30"` to test audio cueing end-to-end
+10. **Run** `python host/latency_benchmark.py --address "12:34:56:C2:A2:30" --iterations 100 --csv results.csv`
 
 ---
 
 ## Summary of All Files
 
-| File | Type | Purpose |
-|---|---|---|
-| `services/ble_profiles/cueing/cueingps/api/cueingps_task.h` | New | Message IDs and data structs for the BLE profile |
-| `services/ble_profiles/cueing/cueingps/src/cueingps.h` | New | Attribute enum, environment struct, function declarations |
-| `services/ble_profiles/cueing/cueingps/src/cueingps.c` | New | GATT attribute database and profile lifecycle |
-| `services/ble_profiles/cueing/cueingps/src/cueingps_task.c` | New | Low-level BLE message handlers (read/write/notify) |
-| `services/ble_app/app_cueing/app_cueing_server.h` | New | Command/status constants, config struct, API |
-| `services/ble_app/app_cueing/app_cueing_server.c` | New | Command parsing, audio trigger, status feedback |
-| `services/ble_stack/ble_ip/rwip_task.h` | Modified | Added TASK_ID_CUEINGPS = 78 |
-| `services/ble_stack/ble_ip/rwapp_config.h` | Modified | Added BLE_APP_CUEING_SERVER build flag |
-| `services/ble_stack/ble_ip/rwprf_config.h` | Modified | Added BLE_CUEING_SERVER profile flag |
-| `services/ble_profiles/prf/prf.c` | Modified | Registered cueing profile in the profile registry |
-| `services/ble_stack/ble_ip/rwble_hl_config.h` | Modified | Added BLE_APP_CUEING_SERVER to CFG_NB_PRF profile count |
-| `services/ble_app/app_main/app_task.c` | Modified | Added message routing for cueing task; optimized slave preferred conn params |
-| `services/ble_app/app_main/app.c` | Modified | Added cueing to service list, init, and registration |
-| `services/ble_app/Makefile` | Modified | Added cueing source files and include paths |
-| `services/ble_profiles/Makefile` | Modified | Added cueing source files and include paths |
-| `host/cueing_uuids.py` | New | UUID and constant definitions for Python side |
-| `host/scan_and_discover.py` | New | BLE scan and GATT service enumeration script |
-| `host/test_cueing.py` | New | End-to-end cueing test with config read, burst, latency |
-| `host/latency_benchmark.py` | New | Latency benchmark with percentiles, CSV/JSON export |
-| `host/cueing_consumer.py` | New | HERMES Consumer with auto-reconnect and operation logging |
-| `host/cueing_fsm.py` | New | FSM cueing controller (threshold + FSM strategies) |
-| `host/experiment_longevity.py` | New | Multi-hour BLE stability and latency degradation test |
-| `host/experiment_compare_strategies.py` | New | Threshold vs FSM comparison on recorded FoG traces |
-| `host/requirements.txt` | New | Python dependency list |
+| # | File | Type | Purpose |
+|---|---|---|---|
+| 1 | `services/ble_profiles/cueing/cueingps/api/cueingps_task.h` | New | Message IDs and data structs for the BLE profile |
+| 2 | `services/ble_profiles/cueing/cueingps/src/cueingps.h` | New | Attribute enum, environment struct, function declarations |
+| 3 | `services/ble_profiles/cueing/cueingps/src/cueingps.c` | New | GATT attribute database and profile lifecycle |
+| 4 | `services/ble_profiles/cueing/cueingps/src/cueingps_task.c` | New | Low-level BLE message handlers (read/write/notify) |
+| 5 | `services/ble_app/app_cueing/app_cueing_server.h` | New | Command/status constants, config struct, API |
+| 6 | `services/ble_app/app_cueing/app_cueing_server.c` | New | Command parsing, audio trigger, status feedback |
+| 7 | `services/ble_stack/ble_ip/rwip_task.h` | Modified | Added TASK_ID_CUEINGPS = 78 |
+| 8 | `services/ble_stack/ble_ip/rwapp_config.h` | Modified | Added BLE_APP_CUEING_SERVER build flag |
+| 9 | `services/ble_stack/ble_ip/rwprf_config.h` | Modified | Added BLE_CUEING_SERVER profile flag |
+| 10 | `services/ble_stack/ble_ip/rwble_hl_config.h` | Modified | Fixed profile count (CFG_NB_PRF) |
+| 11 | `services/ble_profiles/prf/prf.c` | Modified | Registered cueing profile in the profile registry |
+| 12 | `services/ble_app/app_main/app.c` | Modified | Added cueing to service list, init, and registration |
+| 13 | `services/ble_app/app_main/app_task.c` | Modified | Added message routing; optimized conn params |
+| 14 | `services/ble_app/app_main/app_ble_core.c` | Modified | Bypass IBRT_MASTER advertising gate |
+| 15 | `services/ble_app/app_main/app_ble_mode_switch.c` | Modified | Bypass advSwitch gate, remove SCO check |
+| 16 | `services/ble_app/Makefile` | Modified | Added cueing source files and include paths |
+| 17 | `services/ble_profiles/Makefile` | Modified | Added cueing source files and include paths |
+| 18 | `config/open_source/target.mk` | Modified | BLE=1, ANC=0, LDAC=0, memory optimizations |
+| 19 | `apps/main/apps.cpp` | Modified | Moved app_ble_mode_init() before battery check |
+| 20 | `services/app_ibrt/src/app_ibrt_search_pair_ui.cpp` | Modified | Allow box events when nv_role is UNKNOW |
+| 21 | `services/app_ibrt/src/app_ibrt_keyboard.cpp` | Modified | Guard app_anc_key() with #ifdef ANC_APP |
+| 22 | `scripts/clean.mk` | Modified | Handle directory entries in multi-object deps |
+| 23 | `services/ble_app/app_main/app_ble_rx_handler.h` | Modified | Add `<stdint.h>` include |
+| 24 | `services/bt_app/app_bt_media_manager.h` | Modified | Add `enum` keyword for C compatibility |
+| 25 | `host/cueing_uuids.py` | New | UUID and constant definitions for Python side |
+| 26 | `host/scan_and_discover.py` | New | BLE scan and GATT service enumeration |
+| 27 | `host/test_cueing.py` | New | End-to-end cueing test with latency measurement |
+| 28 | `host/latency_benchmark.py` | New | Latency benchmark with percentiles, CSV/JSON export |
+| 29 | `host/cueing_consumer.py` | New | HERMES Consumer with auto-reconnect |
+| 30 | `host/cueing_fsm.py` | New | FSM cueing controller (threshold + FSM strategies) |
+| 31 | `host/experiment_longevity.py` | New | Multi-hour BLE stability and latency test |
+| 32 | `host/experiment_compare_strategies.py` | New | Threshold vs FSM comparison on FoG traces |
+| 33 | `host/requirements.txt` | New | Python dependency list |
+
+**Totals:** 6 new firmware files, 18 modified firmware files, 9 new Python scripts = **33 files touched**
